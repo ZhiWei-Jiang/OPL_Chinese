@@ -1,0 +1,230 @@
+From 5ad1796d8cd9a0ef6159f49c737b7d9bfd077064 Mon Sep 17 00:00:00 2001
+From: Zhiwei Jiang <qq282012236@gmail.com>
+Date: Mon, 17 Feb 2025 03:46:41 +0800
+Subject: [PATCH] ps2sdk utf8 smb support
+
+---
+ iop/network/smbman/src/smb.c | 150 +++++++++++++++++++++++++++++++++--
+ 1 file changed, 144 insertions(+), 6 deletions(-)
+
+diff --git a/iop/network/smbman/src/smb.c b/iop/network/smbman/src/smb.c
+index 4d201bd9..18e7d854 100644
+--- a/iop/network/smbman/src/smb.c
++++ b/iop/network/smbman/src/smb.c
+@@ -8,6 +8,7 @@
+ #include <irx.h>
+ #include <limits.h>
+ #include <stdio.h>
++#include <stdint.h>
+ #include <sysclib.h>
+ #include <ps2ip.h>
+ #include <ioman.h>
+@@ -260,7 +261,7 @@ static int GetSMBServerReply(int shdrlen, void *spayload, int rhdrlen)
+ 
+     return totalpkt_size;
+ }
+-
++#if 1
+ //-------------------------------------------------------------------------
+ // These functions will process UTF-16 characters on a byte-level, so that they will be safe for use with byte-alignment.
+ static int asciiToUtf16(char *out, const char *in)
+@@ -280,7 +281,92 @@ static int asciiToUtf16(char *out, const char *in)
+ 
+     return len;
+ }
++#else
++#if 0
++int my_strncmp(const char *s1, const char *s2, size_t n) {
++    for (size_t i = 0; i < n; i++) {
++        if (s1[i] == '\0' || s2[i] == '\0' || s1[i] != s2[i]) {
++            return (unsigned char)s1[i] - (unsigned char)s2[i]; // 返回字符差值
++        }
++    }
++    return 0; // 前 n 个字符相等
++}
++char *my_strstr(const char *haystack, const char *needle) {
++    if (needle == NULL || *needle == '\0') {
++        return (char *)haystack; // 如果子字符串为空，则返回 haystack
++    }
++
++    size_t needle_len = strlen(needle);
++
++    for (int i = 0; haystack[i] != '\0'; i++) {
++        if (haystack[i] == needle[0]) { // 找到子字符串的第一个字符
++            if (strlen(haystack + i) >= needle_len && // 检查剩余长度是否足够
++                my_strncmp(haystack + i, needle, needle_len) == 0) { // 比较子字符串
++                return (char *)haystack + i; // 返回子字符串的起始地址
++            }
++        }
++    }
+ 
++    return NULL; // 没有找到子字符串
++}
++#endif
++// UTF-8 to UTF-16 conversion function (using char* for output)
++
++int asciiToUtf16(char *out, const char *in) {
++    int len = 0;
++    const unsigned char *pIn = (const unsigned char *)in;
++    char *pOut = out;
++    uint32_t wchar;
++#if 0
++    int prt =0;
++    if (my_strstr(in, "iso") != NULL){
++            prt = 1;
++            // 打印原始输入的 Hex 值
++            printf("origin asciiToUtf16 in hex: ");
++            const unsigned char *tempIn = (const unsigned char *)in;
++            while (*tempIn != '\0') {
++                printf("%02X ", *tempIn);
++                tempIn++;
++            }
++            printf("\n");
++    }
++#endif
++    while (*pIn != '\0') {
++        unsigned char c = *pIn;
++        if (c < 0x80) { // ASCII range
++            wchar = c;
++            pIn++;
++        } else if ((c & 0xE0) == 0xC0) { // 2-byte UTF-8
++            wchar = ((c & 0x1F) << 6) | (pIn[1] & 0x3F);
++            pIn += 2;
++        } else if ((c & 0xF0) == 0xE0) { // 3-byte UTF-8
++            wchar = ((c & 0x0F) << 12) | ((pIn[1] & 0x3F) << 6) | (pIn[2] & 0x3F);
++            pIn += 3;
++        } else { // Invalid UTF-8
++            wchar = '?';
++            pIn++;
++        }
++        *((uint16_t *)pOut) = (uint16_t)wchar;
++        pOut += 2;
++        len += 2;
++    }
++    *((uint16_t *)pOut) = 0; // Null terminate as UTF-16
++    len += 2;
++#if 0
++    if (prt == 1) {
++        // 打印转换后的 UTF-16 Hex 值
++        printf("origin asciiToUtf16 out hex: ");
++        for (int i = 0; i < len; i += 2) {
++            printf("%04X ", *((uint16_t *)(out + i)));
++        }
++        printf("\n");
++    }
++#endif
++    return len;
++}
++
++#endif
++#if 0
+ static int utf16ToAscii(char *out, const char *in, int inbytes)
+ {
+     int len, bytesProcessed;
+@@ -294,14 +380,14 @@ static int utf16ToAscii(char *out, const char *in, int inbytes)
+             break;
+ 
+         if (wchar >= 0xD800 && wchar < 0xDC00) { // Skip surrogate. Replace unsupported character with '?'.
+-            *pOut = '?';
++            *pOut = '$';
+ 
+             pIn += 4;
+             bytesProcessed += 4;
+             pOut++;
+         } else {
+             // Write decoded character. Replace unsupported characters with '?'.
+-            *pOut = (wchar > 128) ? '?' : (char)wchar;
++            *pOut = (wchar > 128) ? '!' : (char)wchar;
+ 
+             pIn += 2;
+             bytesProcessed += 2;
+@@ -314,7 +400,57 @@ static int utf16ToAscii(char *out, const char *in, int inbytes)
+ 
+     return len;
+ }
++#else
++
++// UTF-16 to UTF-8 conversion function
++static int utf16ToAscii(char *out, const char *in, int inbytes) {
++    int len = 0;
++    int bytesProcessed = 0;
++    const unsigned short *pIn = (const unsigned short *)in;
++    char *pOut = out;
++    unsigned short wchar;
++
++    while ((inbytes == 0) || (bytesProcessed < inbytes)) {
++        wchar = *pIn;
++
++        if (wchar == '\0') {
++            break;
++        }
++
++        if (wchar < 0x80) { // 1-byte UTF-8
++            *pOut++ = (char)wchar;
++            len++;
++        } else if (wchar < 0x800) { // 2-byte UTF-8
++            *pOut++ = 0xC0 | (wchar >> 6);
++            *pOut++ = 0x80 | (wchar & 0x3F);
++            len += 2;
++        } else if (wchar < 0x10000) { // 3-byte UTF-8
++            *pOut++ = 0xE0 | (wchar >> 12);
++            *pOut++ = 0x80 | ((wchar >> 6) & 0x3F);
++            *pOut++ = 0x80 | (wchar & 0x3F);
++            len += 3;
++        } else if (wchar < 0x110000) { // 4-byte UTF-8
++            wchar -= 0x10000;
++            *pOut++ = 0xF0 | (wchar >> 18);
++            *pOut++ = 0x80 | ((wchar >> 12) & 0x3F);
++            *pOut++ = 0x80 | ((wchar >> 6) & 0x3F);
++            *pOut++ = 0x80 | (wchar & 0x3F);
++            len += 4;
++        } else { // Invalid Unicode character
++            //printf("Invalid Unicode character: 0x%04X\n", wchar);
++            return -1;
++        }
+ 
++        pIn++;
++        bytesProcessed += 2;
++    }
++
++    *pOut = '\0';
++    len++;
++
++    return len;
++}
++#endif
+ static int setStringField(char *out, const char *in)
+ {
+     int len;
+@@ -917,7 +1053,7 @@ int smb_NTCreateAndX(int UID, int TID, char *filename, s64 *filesize, int mode)
+     }
+ 
+     *filesize = NTCRsp->FileSize;
+-
++    //printf("smb_NTCreateAndX return: %d\n", (int)NTCRsp->FID);
+     return (int)NTCRsp->FID;
+ }
+ 
+@@ -928,7 +1064,9 @@ int smb_OpenAndX(int UID, int TID, char *filename, s64 *filesize, int mode)
+     // smb_QueryPathInformation to find the real size.
+     // OpenAndX is needed for a few NAS units that doesn't supports
+     // NT SMB commands set.
+-
++//     for (int i = 0; filename[i] != '\0'; i++) {
++//     printf("smb_OpenAndX: %c, hex: %02X\n", filename[i], filename[i]);
++//   }
+     PathInformation_t info;
+     OpenAndXRequest_t *OR    = &SMB_buf.smb.openAndXRequest;
+     OpenAndXResponse_t *ORsp = &SMB_buf.smb.openAndXResponse;
+@@ -994,7 +1132,7 @@ int smb_OpenAndX(int UID, int TID, char *filename, s64 *filesize, int mode)
+         *filesize = info.EndOfFile;
+     else
+         r = -1;
+-
++    //printf("smb_OpenAndX return: %d\n", r);
+     return r;
+ }
+ 
+-- 
+2.34.1
+

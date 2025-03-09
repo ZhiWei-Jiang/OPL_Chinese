@@ -13,7 +13,7 @@
 #include <thsemap.h>
 #include <intrman.h>
 #include <sifman.h>
-
+#include <stdint.h>
 #include "oplsmb.h"
 #include "smb.h"
 #include "cdvd_config.h"
@@ -229,23 +229,87 @@ static int GetSMBServerReply(int shdrlen, void *spayload, int rhdrlen)
 
 //-------------------------------------------------------------------------
 //These functions will process UTF-16 characters on a byte-level, so that they will be safe for use with byte-alignment.
-static int asciiToUtf16(char *out, const char *in)
-{
-    int len;
-    const char *pIn;
-    char *pOut;
-
-    for (pIn = in, pOut = out, len = 0; *pIn != '\0'; pIn++, pOut += 2, len += 2) {
-        pOut[0] = *pIn;
-        pOut[1] = '\0';
+#if 0
+int my_strncmp(const char *s1, const char *s2, size_t n) {
+    for (size_t i = 0; i < n; i++) {
+        if (s1[i] == '\0' || s2[i] == '\0' || s1[i] != s2[i]) {
+            return (unsigned char)s1[i] - (unsigned char)s2[i]; // 返回字符差值
+        }
+    }
+    return 0; // 前 n 个字符相等
+}
+char *my_strstr(const char *haystack, const char *needle) {
+    if (needle == NULL || *needle == '\0') {
+        return (char *)haystack; // 如果子字符串为空，则返回 haystack
     }
 
-    pOut[0] = '\0'; //NULL terminate.
-    pOut[1] = '\0';
-    len += 2;
+    size_t needle_len = strlen(needle);
 
+    for (int i = 0; haystack[i] != '\0'; i++) {
+        if (haystack[i] == needle[0]) { // 找到子字符串的第一个字符
+            if (strlen(haystack + i) >= needle_len && // 检查剩余长度是否足够
+                my_strncmp(haystack + i, needle, needle_len) == 0) { // 比较子字符串
+                return (char *)haystack + i; // 返回子字符串的起始地址
+            }
+        }
+    }
+
+    return NULL; // 没有找到子字符串
+}
+#endif
+int asciiToUtf16(char *out, const char *in) {
+    int len = 0;
+    const unsigned char *pIn = (const unsigned char *)in;
+    char *pOut = out;
+    uint32_t wchar;
+#if 0
+    int prt =0;
+    if (my_strstr(in, "iso") != NULL){
+            prt = 1;
+            // 打印原始输入的 Hex 值
+            printf("jzw origin asciiToUtf16 in hex: ");
+            const unsigned char *tempIn = (const unsigned char *)in;
+            while (*tempIn != '\0') {
+                printf("%02X ", *tempIn);
+                tempIn++;
+            }
+            printf("\n");
+    }
+#endif
+    while (*pIn != '\0') {
+        unsigned char c = *pIn;
+        if (c < 0x80) { // ASCII range
+            wchar = c;
+            pIn++;
+        } else if ((c & 0xE0) == 0xC0) { // 2-byte UTF-8
+            wchar = ((c & 0x1F) << 6) | (pIn[1] & 0x3F);
+            pIn += 2;
+        } else if ((c & 0xF0) == 0xE0) { // 3-byte UTF-8
+            wchar = ((c & 0x0F) << 12) | ((pIn[1] & 0x3F) << 6) | (pIn[2] & 0x3F);
+            pIn += 3;
+        } else { // Invalid UTF-8
+            wchar = '?';
+            pIn++;
+        }
+        *((uint16_t *)pOut) = (uint16_t)wchar;
+        pOut += 2;
+        len += 2;
+    }
+    *((uint16_t *)pOut) = 0; // Null terminate as UTF-16
+    len += 2;
+#if 0
+    if (prt == 1) {
+        // 打印转换后的 UTF-16 Hex 值
+        printf("jzw origin asciiToUtf16 out hex: ");
+        for (int i = 0; i < len; i += 2) {
+            printf("%04X ", *((uint16_t *)(out + i)));
+        }
+        printf("\n");
+    }
+#endif
     return len;
 }
+
 
 static int setStringField(char *out, const char *in)
 {
