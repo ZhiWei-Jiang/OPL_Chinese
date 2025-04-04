@@ -1,4 +1,11 @@
 # Open PS2 Loader
+在官方最新OPL版本基础上加了一条SMB的中文支持提交 且在PS3实机上正常游玩
+PS2实机网友反馈卡死 我无实机没有调试 而且我PS3实机只需要SMB足够 PS2内置硬盘 u盘等支持中文应该也类似 接下来由其余的贴吧老哥们继续修改发扬光大了
+
+其中有个0001-ps2sdk-utf8-smb-support.patch文件 是用在这个https://github.com/ps2dev/ps2sdk下面 来生成一个smbman.irx可能类似驱动的文件
+OPL编译时需要在本地环境中找smbman.irx这个文件并最终编译集成到生成的ELF文件中
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 Copyright 2013, Ifcaro & jimmikaelkael
 Licensed under Academic Free License version 3.0
